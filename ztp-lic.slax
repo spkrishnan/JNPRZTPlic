@@ -24,7 +24,7 @@
  *    The switch will download the script from the URL and run the script after the ZTP process is completed
          system { delete: autoinstallation; }
          event-options {
-            generate-event { ztp-lic time-interval 60; }
+            generate-event { ztp-lic time-interval 180; }
             policy ztp-lic {
               events ztp-lic;
               then {
