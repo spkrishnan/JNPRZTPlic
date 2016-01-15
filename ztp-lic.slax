@@ -1,0 +1,214 @@
+/*
+ * ----------------------------------------------------------------------------
+ * Author         : Suresh Palguna Krishnan (adapted from Damien Garros and Jeremy Shculman)
+ * Version        : 1.0
+ * Last Modified  : 2016-01-14
+ * Platform       : EX3300,EX4300
+ * Release        : last tested on 13.2
+ * Description    : 
+ *
+ *    This file contains a script to install licenses on the switch as part of the ZTP process
+ *    The script basically downloads the licenses.txt file from the file server
+ *    Here is the format for the licenses.txt file
+
+		PD3713497661:SLELCIEE12K
+		PD3724466188:TYUXE13SDRF
+		PD3713497661:OUIRVWQWC12
+
+ *    The script looks for the serial number in the file and the corresponding license data
+ *    Applies this license data on the switch
+ *
+ *
+ *    The ZTP process installs the appropriate software version and installs a base configuration file identified int eh DHCP parameters.
+ *    The base configuration file should contain the following configuration 
+ *    The switch will download the script from the URL and run the script after the ZTP process is completed
+         system { delete: autoinstallation; }
+         event-options {
+            generate-event { ztp-lic time-interval 60; }
+            policy ztp-lic {
+              events ztp-lic;
+              then {
+                execute-commands {
+                   commands {
+                     "op url ftp://192.168.0.1/ztp-lic.slax";
+                   }
+                 }
+              }
+            }
+         }
+ *
+ *
+ * ----------------------------------------------------------------------------
+ * Copyright (c) 2011-2012  Juniper Networks. All Rights Reserved.
+ *
+ * YOU MUST ACCEPT THE TERMS OF THIS DISCLAIMER TO USE THIS SOFTWARE
+ * 
+ * JUNIPER IS WILLING TO MAKE THE INCLUDED SCRIPTING SOFTWARE AVAILABLE TO YOU
+ * ONLY UPON THE CONDITION THAT YOU ACCEPT ALL OF THE TERMS CONTAINED IN THIS
+ * DISCLAIMER. PLEASE READ THE TERMS AND CONDITIONS OF THIS DISCLAIMER
+ * CAREFULLY.
+ *
+ * THE SOFTWARE CONTAINED IN THIS FILE IS PROVIDED "AS IS." JUNIPER MAKES NO
+ * WARRANTIES OF ANY KIND WHATSOEVER WITH RESPECT TO SOFTWARE. ALL EXPRESS OR
+ * IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY WARRANTY
+ * OF NON-INFRINGEMENT OR WARRANTY OF MERCHANTABILITY OR FITNESS FOR A
+ * PARTICULAR PURPOSE, ARE HEREBY DISCLAIMED AND EXCLUDED TO THE EXTENT
+ * ALLOWED BY APPLICABLE LAW.
+ *
+ * IN NO EVENT WILL JUNIPER BE LIABLE FOR ANY LOST REVENUE, PROFIT OR DATA, OR
+ * FOR DIRECT, SPECIAL, INDIRECT, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE DAMAGES
+ * HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY ARISING OUT OF THE 
+ * USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF JUNIPER HAS BEEN ADVISED OF 
+ * THE POSSIBILITY OF SUCH DAMAGES.
+ */
+
+
+version 1.0;
+
+/* Junos standard namespaces */
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+
+/* EXSLT extensions and app specific namespaces */
+ns exsl extension = "http://exslt.org/common";
+ns func extension = "http://exslt.org/functions";
+ns ztp = "http://xml.juniper.net/junos/ztp";
+
+import "/var/run/scripts/import/junos.xsl";
+
+
+
+match / {
+	<op-script-results> {
+		/* Open a connection to the device */
+		var $jnx = jcs:open();
+
+		/*Get serial number on current device */	
+		var $serial = ztp:serial-number( $jnx );
+
+		var $lic = ztp:get-license($jnx,$serial);
+		if ($lic == "") {
+			<output> "Could not locate license in license file";
+		}
+		else {
+			<output> "License " _$lic _" found for serial number " _$serial;
+			var $result = ztp:apply-lic($jnx,$lic);
+		 	copy-of $result;
+		}
+
+
+		/*** We remove unnecessary part of the configuration ***/
+	
+    		var $load-config-rpc = <load-configuration action = "merge" format = "xml"> {
+        		<configuration> {
+				<event-options delete="delete">;
+        		}
+    		}
+
+		expr ztp:load-config( $jnx, $load-config-rpc);
+		expr ztp:end-script( $jnx );
+	}
+}
+
+
+/* --------------------------------------------------- ------------------------------------------------- */
+/* This function is used to download license file, get the license information for a given serial number */
+/* ----------------------------------------------------------------------------------------------------- */
+
+<func:function name="ztp:get-license">
+{
+	param $_jnxhandle_;
+	param $_serial_;
+	var $filetfer = {
+        	<request-shell-execute> {
+                	<command> "curl -O ftp://10.92.70.224/licenses.txt";
+                }
+      	}
+	var $tmp = jcs:execute($_jnxhandle_,$filetfer);
+        var $licenses = slax:document("/var/db/scripts/op/licenses.txt");
+        var $liclines := jcs:split("\n", $licenses);
+        for-each ($liclines) {
+        	var $licline = .;
+        	var $licsplit = jcs:split(":",$licline);
+        	if ($licsplit[1] = $_serial_) {
+               		<func:result select="$licsplit[2]">;		
+		} 
+         }
+}
+
+
+/* ---------------------------------------------------- */
+/* this function is used to apply license on the device */
+/* ---------------------------------------------------- */
+<func:function name="ztp:apply-lic">
+{
+   param $jnx;
+   param $lic;
+  
+   var $licrpc = <request-license-add> {
+             		<key-data> $lic;
+              	}
+   var $result = jcs:execute( $jnx , $licrpc ); 
+   <func:result select="$result">;
+}
+
+
+
+/* ------------------------------------------------- */
+/* this function is used get serial number  */
+/* ------------------------------------------------- */
+<func:function name="ztp:serial-number">
+{
+   param $jnx;
+   
+   var $cmd = <get-chassis-inventory> {  <models>; }
+   var $sn = jcs:execute( $jnx, $cmd )//chassis-module/serial-number;
+   
+   <func:result select="$sn">;
+}
+
+
+/* ----------------------------------------------------------------------------- */
+/* this function is used to load/commit changes to the configuration; no locking */
+/* ----------------------------------------------------------------------------- */
+<func:function name="ztp:load-config">
+{
+   param $jnx;
+   param $load-cmd;
+   
+   var $load-rsp = jcs:execute( $jnx, $load-cmd );
+   if( $load-rsp//self::xnm:error ) {
+      call syslog-messages( $header = "Unable to load configuration", $messages = $load-rsp//self::xnm:error/message );
+      <func:result select="$load-rsp//self::xnm:error">;
+   }
+   else { 
+      var $commit-rsp = jcs:execute( $jnx, "commit-configuration" );
+      if( $commit-rsp//self::xnm:error ) {
+         call syslog-messages( $header = "unable to commit configuration", $messages = $commit-rsp//self::xnm:error/message );
+         <func:result select="exsl:node-set($commit-rsp//self::xnm:error)">;
+      }
+      else {
+         <func:result select="/null">;
+      }
+   }
+}
+
+
+
+
+
+
+
+/* ------------------------------------------------- */
+/* this function is used to terminate script properly  */
+/* ------------------------------------------------- */
+<func:function name="ztp:end-script">
+{
+   param $jnx;
+   
+   expr jcs:close( $jnx ); 
+   <xsl:message terminate="yes">;
+   
+   <func:result select="true()">;
+}
