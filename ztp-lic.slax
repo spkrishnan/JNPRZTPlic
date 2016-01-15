@@ -11,9 +11,12 @@
  *    The script basically downloads the licenses.txt file from the file server
  *    Here is the format for the licenses.txt file
 
-		PD3713497661:SLELCIEE12K
-		PD3724466188:TYUXE13SDRF
-		PD3713497661:OUIRVWQWC12
+		PD3713497661:aeaqia qmkbcd gnzrgm 2dsmbw gyyqma uqceds
+            q2fftx 7k4e47 ylbejp crmq6c e6gyyr wdbhzs
+            qbhcwd i5rpo3 5usdem g2cdhu uoesve te;
+		PD3724466188:aeaqia qmkbcd gnzrgr 2dsmbw gyyqma uqceds
+            q2fftx 7k4e47 ylbejp crmq6c e6gyyr wdbhzs
+            qbhcwd i5rpo3 5usdem g2cdhu uoesve te;
 
  *    The script looks for the serial number in the file and the corresponding license data
  *    Applies this license data on the switch
@@ -127,7 +130,7 @@ match / {
       	}
 	var $tmp = jcs:execute($_jnxhandle_,$filetfer);
         var $licenses = slax:document("/var/db/scripts/op/licenses.txt");
-        var $liclines := jcs:split("\n", $licenses);
+        var $liclines := jcs:split(";", $licenses);
         for-each ($liclines) {
         	var $licline = .;
         	var $licsplit = jcs:split(":",$licline);
