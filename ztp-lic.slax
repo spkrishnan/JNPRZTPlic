@@ -11,10 +11,10 @@
  *    The script basically downloads the licenses.txt file from the file server
  *    Here is the format for the licenses.txt file
 
-		PD3713497661:aeaqia qmkbcd gnzrgm 2dsmbw gyyqma uqceds
+	PD3713497661:aeaqia qmkbcd gnzrgm 2dsmbw gyyqma uqceds
             q2fftx 7k4e47 ylbejp crmq6c e6gyyr wdbhzs
             qbhcwd i5rpo3 5usdem g2cdhu uoesve te;
-		PD3724466188:aeaqia qmkbcd gnzrgr 2dsmbw gyyqma uqceds
+	PD3724466188:aeaqia qmkbcd gnzrgr 2dsmbw gyyqma uqceds
             q2fftx 7k4e47 ylbejp crmq6c e6gyyr wdbhzs
             qbhcwd i5rpo3 5usdem g2cdhu uoesve te;
 
@@ -33,7 +33,7 @@
               then {
                 execute-commands {
                    commands {
-                     "op url ftp://192.168.0.1/ztp-lic.slax";
+                     "op url http://192.168.0.1/ztp-lic.slax";
                    }
                  }
               }
@@ -90,13 +90,16 @@ match / {
 		/*Get serial number on current device */	
 		var $serial = ztp:serial-number( $jnx );
 
-		var $lic = ztp:get-license($jnx,$serial);
-		if ($lic == "") {
-			<output> "Could not locate license in license file";
+		var $licfile = $serial _".csv";
+		<output> $licfile;	
+		var $lic = ztp:get-license($jnx,$licfile);
+		<output> $lic;
+		if (not($lic)) {
+			<output> "Error: Could not locate license file for the serial number: " _$serial;
 		}
 		else {
-			<output> "License " _$lic _" found for serial number " _$serial;
-			var $result = ztp:apply-lic($jnx,$lic);
+			<output> "License file " _$licfile _" downloaded successfully\n";
+			var $result = ztp:apply-lic($jnx,$licfile);
 		 	copy-of $result;
 		}
 
@@ -121,23 +124,21 @@ match / {
 
 <func:function name="ztp:get-license">
 {
-	param $_jnxhandle_;
-	param $_serial_;
+	param $jnx;
+	param $licfile;
+	var $liccmd = "curl http://10.92.70.225/" _$licfile _" > /var/db/scripts/op/" _$licfile;		
 	var $filetfer = {
         	<request-shell-execute> {
-                	<command> "curl -O ftp://192.168.0.1/licenses.txt";
+			<command> $liccmd;
                 }
       	}
-	var $tmp = jcs:execute($_jnxhandle_,$filetfer);
-        var $licenses = slax:document("/var/db/scripts/op/licenses.txt");
-        var $liclines := jcs:split(";", $licenses);
-        for-each ($liclines) {
-        	var $licline = .;
-        	var $licsplit = jcs:split(":",$licline);
-        	if ($licsplit[1] = $_serial_) {
-               		<func:result select="$licsplit[2]">;		
-		} 
-         }
+	var $tmp = jcs:execute($jnx,$filetfer);
+	var $filename = "/var/db/scripts/op/" _$licfile;
+        var $ls_file = <file-list> { <path> $filename; }
+        var $ls_got = jcs:execute( $jnx, $ls_file );
+        var $result = boolean( $ls_got//file-information );
+	<func:result select="$result">;
+
 }
 
 
@@ -147,10 +148,11 @@ match / {
 <func:function name="ztp:apply-lic">
 {
    param $jnx;
-   param $lic;
+   param $licfile;
+   var $filename = "/var/db/scripts/op/" _$licfile;
   
    var $licrpc = <request-license-add> {
-             		<key-data> $lic;
+             		<source> $filename;
               	}
    var $result = jcs:execute( $jnx , $licrpc ); 
    <func:result select="$result">;
