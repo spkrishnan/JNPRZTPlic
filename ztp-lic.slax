@@ -126,7 +126,7 @@ match / {
 {
 	param $jnx;
 	param $licfile;
-	var $liccmd = "curl http://10.92.70.225/" _$licfile _" > /var/db/scripts/op/" _$licfile;		
+	var $liccmd = "curl http://192.168.0.1/" _$licfile _" > /var/db/scripts/op/" _$licfile;		
 	var $filetfer = {
         	<request-shell-execute> {
 			<command> $liccmd;
